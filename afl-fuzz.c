@@ -336,6 +336,30 @@ enum {
   /* 05 */ FAULT_NOBITS
 };
 
+/* FUZZERLOG: fuzzer log related */
+typedef void (*reset_chances_handle)();
+typedef void (*increase_chances_handle)();
+typedef void (*reset_mutator_names_handle)();
+typedef void (*add_mutator_name_handle)(char * mutator_name);
+typedef void (*log_new_seed_handle)(char * seed_name, char * kept_reason);
+typedef void (*reset_current_seed_name_handle)();
+typedef void (*set_current_seed_name_handle)(char * seed_name);
+typedef void (*log_chances_handle)();
+typedef void (*fuzzer_logger_start_handle)();
+typedef void (*fuzzer_logger_end_handle)();
+
+reset_chances_handle reset_chances;
+increase_chances_handle increase_chances;
+reset_mutator_names_handle reset_mutator_names;
+add_mutator_name_handle add_mutator_name;
+log_new_seed_handle log_new_seed;
+reset_current_seed_name_handle reset_current_seed_name;
+set_current_seed_name_handle set_current_seed_name;
+log_chances_handle log_chances;
+fuzzer_logger_start_handle fuzzer_logger_start;
+fuzzer_logger_end_handle fuzzer_logger_end;
+
+void *fuzzer_log_lib;
 
 /* Get unix time in milliseconds */
 
@@ -3189,6 +3213,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 #endif /* ^!SIMPLE_FILES */
 
     add_to_queue(fn, len, 0);
+    /* FUZZERLOG: log for new seed */
+    log_new_seed(fn, "new-cov");
+    reset_mutator_names();
 
     if (hnb == 2) {
       queue_top->has_new_cov = 1;
@@ -3275,6 +3302,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
       unique_hangs++;
 
+      /* FUZZERLOG: log for new seed */
+      log_new_seed(fn, "new-hang");
+
       last_hang_time = get_cur_time();
 
       break;
@@ -3318,6 +3348,9 @@ keep_as_crash:
 #endif /* ^!SIMPLE_FILES */
 
       unique_crashes++;
+
+      /* FUZZERLOG: log for new seed */
+      log_new_seed(fn, "new-crash");
 
       last_crash_time = get_cur_time();
       last_crash_execs = total_execs;
@@ -4662,6 +4695,10 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   fault = run_target(argv, exec_tmout);
 
+  /* FUZZERLOG: add one exec chance */
+  increase_chances();
+  // reset_mutator_names();
+
   if (stop_soon) return 1;
 
   if (fault == FAULT_TMOUT) {
@@ -5069,6 +5106,11 @@ static u8 fuzz_one(char** argv) {
   if (orig_in == MAP_FAILED) PFATAL("Unable to mmap '%s'", queue_cur->fname);
 
   close(fd);
+
+  /* FUZZERLOG: log current seed */
+  reset_current_seed_name();
+  reset_chances();
+  set_current_seed_name(queue_cur->fname);
 
   /* We could mmap() out_buf as MAP_PRIVATE, but we end up clobbering every
      single byte anyway, so it wouldn't give us any performance or memory usage
@@ -6166,12 +6208,18 @@ havoc_stage:
 
         case 0:
 
+          /* FUZZERLOG: add mutator name */
+          add_mutator_name("havoc_bitflip");
+
           /* Flip a single bit somewhere. Spooky! */
 
           FLIP_BIT(out_buf, UR(temp_len << 3));
           break;
 
-        case 1: 
+        case 1:
+
+          /* FUZZERLOG: add mutator name */
+          add_mutator_name("havoc_interesting_8");
 
           /* Set byte to interesting value. */
 
@@ -6186,10 +6234,16 @@ havoc_stage:
 
           if (UR(2)) {
 
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_interesting_16_le");
+
             *(u16*)(out_buf + UR(temp_len - 1)) =
               interesting_16[UR(sizeof(interesting_16) >> 1)];
 
           } else {
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_interesting_16_be");
 
             *(u16*)(out_buf + UR(temp_len - 1)) = SWAP16(
               interesting_16[UR(sizeof(interesting_16) >> 1)]);
@@ -6205,11 +6259,17 @@ havoc_stage:
           if (temp_len < 4) break;
 
           if (UR(2)) {
-  
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_interesting_32_le");
+
             *(u32*)(out_buf + UR(temp_len - 3)) =
               interesting_32[UR(sizeof(interesting_32) >> 2)];
 
           } else {
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_interesting_32_be");
 
             *(u32*)(out_buf + UR(temp_len - 3)) = SWAP32(
               interesting_32[UR(sizeof(interesting_32) >> 2)]);
@@ -6220,12 +6280,18 @@ havoc_stage:
 
         case 4:
 
+          /* FUZZERLOG: add mutator name */
+          add_mutator_name("havoc_arith_sub_8");
+
           /* Randomly subtract from byte. */
 
           out_buf[UR(temp_len)] -= 1 + UR(ARITH_MAX);
           break;
 
         case 5:
+
+          /* FUZZERLOG: add mutator name */
+          add_mutator_name("havoc_arith_add_8");
 
           /* Randomly add to byte. */
 
@@ -6240,11 +6306,17 @@ havoc_stage:
 
           if (UR(2)) {
 
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_sub_16_le");
+
             u32 pos = UR(temp_len - 1);
 
             *(u16*)(out_buf + pos) -= 1 + UR(ARITH_MAX);
 
           } else {
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_sub_16_be");
 
             u32 pos = UR(temp_len - 1);
             u16 num = 1 + UR(ARITH_MAX);
@@ -6264,11 +6336,17 @@ havoc_stage:
 
           if (UR(2)) {
 
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_add_16_le");
+
             u32 pos = UR(temp_len - 1);
 
             *(u16*)(out_buf + pos) += 1 + UR(ARITH_MAX);
 
           } else {
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_add_16_be");
 
             u32 pos = UR(temp_len - 1);
             u16 num = 1 + UR(ARITH_MAX);
@@ -6288,11 +6366,17 @@ havoc_stage:
 
           if (UR(2)) {
 
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_sub_32_le");
+
             u32 pos = UR(temp_len - 3);
 
             *(u32*)(out_buf + pos) -= 1 + UR(ARITH_MAX);
 
           } else {
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_sub_32_be");
 
             u32 pos = UR(temp_len - 3);
             u32 num = 1 + UR(ARITH_MAX);
@@ -6312,11 +6396,17 @@ havoc_stage:
 
           if (UR(2)) {
 
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_add_32_le");
+
             u32 pos = UR(temp_len - 3);
 
             *(u32*)(out_buf + pos) += 1 + UR(ARITH_MAX);
 
           } else {
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_arith_add_32_be");
 
             u32 pos = UR(temp_len - 3);
             u32 num = 1 + UR(ARITH_MAX);
@@ -6330,6 +6420,9 @@ havoc_stage:
 
         case 10:
 
+          /* FUZZERLOG: add mutator name */
+          add_mutator_name("havoc_rnd_8");
+
           /* Just set a random byte to a random value. Because,
              why not. We use XOR with 1-255 to eliminate the
              possibility of a no-op. */
@@ -6338,6 +6431,9 @@ havoc_stage:
           break;
 
         case 11 ... 12: {
+
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_del");
 
             /* Delete bytes. We're making this a bit more likely
                than insertion (the next option) in hopes of keeping
@@ -6373,11 +6469,15 @@ havoc_stage:
             u8* new_buf;
 
             if (actually_clone) {
+              /* FUZZERLOG: add mutator name */
+              add_mutator_name("havoc_clone");
 
               clone_len  = choose_block_len(temp_len);
               clone_from = UR(temp_len - clone_len + 1);
 
             } else {
+              /* FUZZERLOG: add mutator name */
+              add_mutator_name("havoc_ins");
 
               clone_len = choose_block_len(HAVOC_BLK_XL);
               clone_from = 0;
@@ -6413,6 +6513,8 @@ havoc_stage:
           break;
 
         case 14: {
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_rep");
 
             /* Overwrite bytes with a randomly selected chunk (75%) or fixed
                bytes (25%). */
@@ -6442,6 +6544,8 @@ havoc_stage:
            present in the dictionaries. */
 
         case 15: {
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_extra_rep");
 
             /* Overwrite bytes with an extra. */
 
@@ -6479,6 +6583,8 @@ havoc_stage:
           }
 
         case 16: {
+            /* FUZZERLOG: add mutator name */
+            add_mutator_name("havoc_extra_ins");
 
             u32 use_extra, extra_len, insert_at = UR(temp_len + 1);
             u8* new_buf;
@@ -6682,6 +6788,9 @@ abandon_entry:
   if (in_buf != orig_in) ck_free(in_buf);
   ck_free(out_buf);
   ck_free(eff_map);
+
+  /* FUZZERLOG: log chances given to the current seed */
+  log_chances();
 
   return ret_val;
 
@@ -8067,6 +8176,23 @@ int main(int argc, char** argv) {
   else
     use_argv = argv + optind;
 
+  /* FUZZERLOG: fuzzer log init */
+
+  fuzzer_log_lib = dlopen("/usr/local/lib/libfuzzerlog.so", RTLD_LAZY | RTLD_DEEPBIND);
+
+  reset_chances = dlsym(fuzzer_log_lib, "reset_chances");
+  increase_chances = dlsym(fuzzer_log_lib, "increase_chances");
+  reset_mutator_names = dlsym(fuzzer_log_lib, "reset_mutator_names");
+  add_mutator_name = dlsym(fuzzer_log_lib, "add_mutator_name");
+  log_new_seed = dlsym(fuzzer_log_lib, "log_new_seed");
+  reset_current_seed_name = dlsym(fuzzer_log_lib, "reset_current_seed_name");
+  set_current_seed_name = dlsym(fuzzer_log_lib, "set_current_seed_name");
+  log_chances = dlsym(fuzzer_log_lib, "log_chances");
+  fuzzer_logger_start = dlsym(fuzzer_log_lib, "fuzzer_logger_start");
+  fuzzer_logger_end = dlsym(fuzzer_log_lib, "fuzzer_logger_end");
+
+  fuzzer_logger_start();
+
   perform_dry_run(use_argv);
 
   cull_queue();
@@ -8185,6 +8311,10 @@ stop_fuzzing:
   destroy_extras();
   ck_free(target_path);
   ck_free(sync_id);
+
+  /* FUZZERLOG: fuzzer log exit */
+  fuzzer_logger_end();
+  dlclose(fuzzer_log_lib);
 
   alloc_report();
 
