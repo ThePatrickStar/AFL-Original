@@ -1,5 +1,5 @@
 .idea/
-fuzzerlog.txt
+fuzzerlog.txt*
 out*/
 
 # Binaries produced by "make".
