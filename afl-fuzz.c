@@ -5684,7 +5684,7 @@ skip_bitflip:
         *(u16*)(out_buf + i) = orig - j;
 
         /* FUZZERLOG: log mutator name */
-        add_mutator_name("arith_16_ls_minus");
+        add_mutator_name("arith_16_le_minus");
 
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
         stage_cur++;
@@ -8260,6 +8260,9 @@ int main(int argc, char** argv) {
   /* FUZZERLOG: fuzzer log init */
 
   fuzzer_log_lib = dlopen("/usr/local/lib/libfuzzerlog.so", RTLD_LAZY | RTLD_DEEPBIND);
+  if (fuzzer_log_lib == NULL) {
+    ABORT("fuzzer-log-lib: dlopen failed: %s", dlerror());
+  }
 
   reset_chances = dlsym(fuzzer_log_lib, "reset_chances");
   increase_chances = dlsym(fuzzer_log_lib, "increase_chances");
